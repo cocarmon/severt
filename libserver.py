@@ -1,4 +1,6 @@
+import io
 import selectors
+import http.client
 from codecs import decode
 
 
@@ -8,8 +10,8 @@ class Message:
         self.addr = addr
         self.sel = sel
         self._content_len = None
-        self._recv_buffer = bytearray()
-        self._send_buffer = bytearray()
+        self._recv_buffer = io.BytesIO()
+        self._send_buffer = io.BytesIO()
 
     def process_events(self, mask):
         if mask & selectors.EVENT_READ:
@@ -20,24 +22,26 @@ class Message:
     def read(self):
         data = self.sock.recv(4096)
         if data:
-            delimiter = b"\r\n\r\n"
-            self._recv_buffer.extend(data)
             # HTTP headers are delimited by an empty line (CRLF) check for its byte sequence to determine the end of the headers
             # https://www.rfc-editor.org/rfc/rfc7230#page-19
-            if delimiter in self._recv_buffer:
-                index = self._recv_buffer.find(delimiter)
-                if index != -1:
-                    # rfc7230, delimits each header with \r\n
-                    b_headers = self._recv_buffer[:index]
-                    headers = decode(b_headers, encoding="utf-8").split("\r\n")
-                    content_len = "Content-Length:"
-                    for header in headers:
-                        if header.startswith(content_len):
-                            self._content_len = int(header[len(content_len) :])
-                            break
-                    self._recv_buffer = self._recv_buffer[index + len(delimiter) :]
-            if self._content_len is not None:
-                pass
+            delimiter = b"\r\n\r\n"
+            self._recv_buffer.write(data)
+            if delimiter in self._recv_buffer.getvalue():
+                # parse_headers doesn't parse the start_line
+                # This must be parsed manually (https://docs.python.org/3/library/http.client.html#http.client.HTTPMessage)
+                self._recv_buffer.seek(0)
+                eol = b"\r\n"
+                start_line_index = self._recv_buffer.getvalue().find(eol)
+                start_line = decode(
+                    self._recv_buffer.read(start_line_index + len(eol)),
+                    encoding="utf-8",
+                )
+
+                headers = http.client.parse_headers(self._recv_buffer)
+                if "Content-length" not in headers:
+                    self._recv_buffer.close()
+                # print(headers)
+                # print(start_line.split(" "))
 
     def write(self):
         pass
