@@ -1,25 +1,25 @@
 import io
+import json
 import selectors
 import http.client
+from http.client import HTTPMessage
 from codecs import decode
+from util.queue import event_queue
 
 
-class Message:
-    def __init__(self, sock, addr, sel):
+class ReadMessage:
+    def __init__(self, sock, addr, sel) -> None:
         self.sock = sock
         self.addr = addr
         self.sel = sel
-        self._content_len = None
+        self.headers: HTTPMessage | None = None
+        self._content_len: int | None = None
         self._recv_buffer = io.BytesIO()
-        self._send_buffer = io.BytesIO()
-
-    def process_events(self, mask):
-        if mask & selectors.EVENT_READ:
-            self.read()
-        if mask & selectors.EVENT_WRITE:
-            self.write()
 
     def read(self):
+        self._process_incoming_request()
+
+    def _process_incoming_request(self):
         data = self.sock.recv(4096)
         if data:
             # HTTP headers are delimited by an empty line (CRLF) check for its byte sequence to determine the end of the headers
@@ -38,10 +38,22 @@ class Message:
                 )
 
                 headers = http.client.parse_headers(self._recv_buffer)
+                headers["method"] = start_line.split(" ")[0]
+                headers["location"] = start_line.split(" ")[1]
+                self.headers = headers
                 if "Content-length" not in headers:
                     self._recv_buffer.close()
-                # print(headers)
-                # print(start_line.split(" "))
+                    event_queue.append(self.headers)
+            # Check that headers have been set
+            # if headers:
+            #     if self.headers.get_content_type == "application/json":
+            #         delimiter_index = self._recv_buffer.getvalue().find(delimiter)
+            #         self._recv_buffer.seek(delimiter_index + len(delimiter))
+            #         body = json.loads(self._recv_buffer.read())
+            #         print(body)
+
+        else:
+            self._recv_buffer.close()
 
     def write(self):
         pass

@@ -1,21 +1,21 @@
-#!/usr/bin/env python3
-
-import selectors
-import socket
 import sys
-from libserver import Message
+import socket
+import config
+import selectors
+from service import read_message, write_message
 
 sel = selectors.DefaultSelector()
 
 
-def accept_wrapper(sock):
+def accept_wrapper(sock) -> None:
     conn, addr = sock.accept()
     conn.setblocking(False)
-    message = Message(conn, addr, sel)
-    sel.register(conn, selectors.EVENT_READ, data=message)
+    sel.register(
+        conn, selectors.EVENT_READ, data={"sock": conn, "addr": addr, "sel": sel}
+    )
 
 
-def main():
+async def main() -> None:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <host> <port>")
         sys.exit(1)
@@ -39,7 +39,13 @@ def main():
                     accept_wrapper(key.fileobj)
                 else:
                     message = key.data
-                    message.process_events(mask)
+
+                    readMessage = read_message.ReadMessage(**message)
+                    writeMessage = write_message.WriteMessage(**message)
+
+                    readMessage.read()
+                    await writeMessage.event_listener()
+
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")
     finally:
@@ -47,4 +53,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+
+    asyncio.run(main())
