@@ -22,17 +22,9 @@ class WriteMessage:
     def _process_request(self):
         # Check if server is setup for reverse proxy if not and gets a request other than GET return 405
         if not CONFIG.forward and self.event.get("Method") == "GET":
-            content_type = ""
             content = b""
             base_path = CONFIG.location
             requested_file = self.event.get("Location")
-            file_extension = requested_file.split(".")[-1]
-            if file_extension == "png":
-                content_type = "image"
-            elif file_extension == "html":
-                content_type = "text/html"
-            elif file_extension == "css":
-                content_type = "text/css"
 
             if requested_file == "/":
                 requested_file = "/index.html"
@@ -47,7 +39,7 @@ class WriteMessage:
                     raw_bytes = f.read()
                 content = gzip.compress(raw_bytes)
                 header_bytes = str.encode(
-                    f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:gzip\r\ncontent-length: {len(content)}\r\n\r\n"
+                    f"HTTP/1.1 200 OK\r\ncontent-encoding:gzip\r\ncontent-length: {len(content)}\r\n\r\n"
                 )
         else:
             header_bytes = str.encode("HTTP/1.1 405 Method Not Allowed\r\n\r\n")
