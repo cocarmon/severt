@@ -1,6 +1,16 @@
-import os
 import yaml
+from dataclasses import dataclass
 
-file_path = os.path.join("C:", "Program Files", "Severt", "servert.yml")
-with open("C:/Program Files/Severt/severt.yml", "r") as file:
-    CONFIG = yaml.safe_load(file)
+
+@dataclass(frozen=True)
+class Config:
+    server_name: str
+    location: str
+    listen: int = 80
+    forward: str | None = None
+
+
+"../severt.yml"
+
+with open("C:/Users/codyw/Desktop/severt/severt.yml", "r") as file:
+    CONFIG = Config(**yaml.safe_load(file))
