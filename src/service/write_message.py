@@ -25,6 +25,7 @@ class WriteMessage:
         return True
 
     def _process_request(self):
+        # print(self.sock, self.event.get("Location"))
         is_valid_headers = self._is_valid_headers()
 
         if is_valid_headers:
@@ -49,7 +50,7 @@ class WriteMessage:
                 )
 
                 header_bytes = str.encode(
-                    f"HTTP/1.1 200 OK\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\ncontent-length:{len(content)}\r\n\r\n"
+                    f"HTTP/1.1 200 OK\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\ncontent-length:{len(content)}\r\nConnection: keep-alive\r\n\r\n"
                 )
             except FileNotFoundError:
                 header_bytes = str.encode("HTTP/1.1 404 Not Found\r\n\r\n")
@@ -64,5 +65,4 @@ class WriteMessage:
             sent = self.sock.send(self._send_buffer)
             self._send_buffer = self._send_buffer[sent:]
             if sent and not self._send_buffer:
-                self.sel.unregister(self.sock)
-                self.sock.close()
+                self._send_buffer = b""

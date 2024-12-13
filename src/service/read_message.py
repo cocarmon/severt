@@ -44,10 +44,11 @@ class ReadMessage:
                     "Content-length" not in headers
                     and "Transfer-Encoding" not in headers
                 ):
-                    self._recv_buffer.close()
+                    self._recv_buffer = io.BytesIO()
                     event_queue.append(self.headers)
         else:
-            self._recv_buffer.close()
+            self.sel.unregister(self.sock)
+            self.sock.close()
 
     def _clean_up(self):
         pass
