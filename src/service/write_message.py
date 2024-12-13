@@ -1,6 +1,6 @@
-import os
 import gzip
 from config import CONFIG
+from datetime import datetime, timezone
 from http.client import HTTPMessage
 from util.queue import event_queue
 
@@ -19,30 +19,42 @@ class WriteMessage:
             self.event = event
             self._process_request()
 
+    def _is_valid_headers(self):
+        if not self.event.get("Host"):
+            return False
+        return True
+
     def _process_request(self):
-        # Check if server is setup for reverse proxy if not and gets a request other than GET return 405
-        if not CONFIG.forward and self.event.get("Method") == "GET":
+        is_valid_headers = self._is_valid_headers()
+
+        if is_valid_headers:
             content = b""
             base_path = CONFIG.location
-            requested_file = self.event.get("Location")
-
-            if requested_file == "/":
-                requested_file = "/index.html"
+            content_encoding = "Identity"
+            location = self.event.get("Location")
+            requested_file = "/index.html" if location == "/" else location
 
             full_path = base_path + requested_file
-
-            if not os.path.exists(full_path):
-                header_bytes = str.encode("HTTP/1.1 404 Not Found\r\n\r\n")
-            else:
+            try:
                 # replace with threads
                 with open(full_path, mode="rb") as f:
-                    raw_bytes = f.read()
-                content = gzip.compress(raw_bytes)
-                header_bytes = str.encode(
-                    f"HTTP/1.1 200 OK\r\ncontent-encoding:gzip\r\ncontent-length: {len(content)}\r\n\r\n"
+                    content = f.read()
+
+                if "gzip" in self.event.get("Accept-Encoding").split(", "):
+                    content_encoding = "gzip"
+                    content = gzip.compress(content)
+
+                gmt_string = datetime.now(timezone.utc).strftime(
+                    "%a, %d %b %Y %H:%M:%S GMT"
                 )
+
+                header_bytes = str.encode(
+                    f"HTTP/1.1 200 OK\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\ncontent-length:{len(content)}\r\n\r\n"
+                )
+            except FileNotFoundError:
+                header_bytes = str.encode("HTTP/1.1 404 Not Found\r\n\r\n")
         else:
-            header_bytes = str.encode("HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+            header_bytes = str.encode("HTTP/1.1 400 Bad Request\r\n\r\n")
 
         self._send_buffer += header_bytes + content
         self._write()

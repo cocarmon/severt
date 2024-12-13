@@ -46,16 +46,8 @@ class ReadMessage:
                 ):
                     self._recv_buffer.close()
                     event_queue.append(self.headers)
-            # Check that headers have been set
-            # if headers:
-            #     if self.headers.get_content_type == "application/json":
-            #         delimiter_index = self._recv_buffer.getvalue().find(delimiter)
-            #         self._recv_buffer.seek(delimiter_index + len(delimiter))
-            #         body = json.loads(self._recv_buffer.read())
-            #         print(body)
-
         else:
             self._recv_buffer.close()
 
-    def write(self):
+    def _clean_up(self):
         pass
