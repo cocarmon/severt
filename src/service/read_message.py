@@ -1,6 +1,4 @@
 import io
-import json
-import selectors
 import http.client
 from http.client import HTTPMessage
 from codecs import decode
@@ -31,17 +29,21 @@ class ReadMessage:
                 # This must be parsed manually (https://docs.python.org/3/library/http.client.html#http.client.HTTPMessage)
                 self._recv_buffer.seek(0)
                 eol = b"\r\n"
+                # WARNING: this does not check for whitespace afer the status line so request smuggling is possible.
                 start_line_index = self._recv_buffer.getvalue().find(eol)
                 start_line = decode(
                     self._recv_buffer.read(start_line_index + len(eol)),
                     encoding="utf-8",
                 )
-
                 headers = http.client.parse_headers(self._recv_buffer)
-                headers["method"] = start_line.split(" ")[0]
-                headers["location"] = start_line.split(" ")[1]
+
+                headers["Method"] = start_line.split(" ")[0]
+                headers["Location"] = start_line.split(" ")[1]
                 self.headers = headers
-                if "Content-length" not in headers:
+                if (
+                    "Content-length" not in headers
+                    and "Transfer-Encoding" not in headers
+                ):
                     self._recv_buffer.close()
                     event_queue.append(self.headers)
             # Check that headers have been set

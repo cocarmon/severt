@@ -1,7 +1,8 @@
-import aiofiles
+import os
+import gzip
+from config import CONFIG
 from http.client import HTTPMessage
 from util.queue import event_queue
-from config import CONFIG
 
 
 class WriteMessage:
@@ -12,20 +13,45 @@ class WriteMessage:
         self.event: HTTPMessage | None = None
         self._send_buffer = b""
 
-    async def event_listener(self) -> None:
+    def event_listener(self) -> None:
         if len(event_queue) > 0:
             event = event_queue.popleft()
             self.event = event
-            await self._process_file()
+            self._process_request()
 
-    async def _process_file(self):
-        async with aiofiles.open(
-            CONFIG["server"]["location"] + self.event.get("location"), mode="rb"
-        ) as f:
-            content = await f.read()
-        header_bytes = str.encode(
-            f"HTTP/1.1 200 OK\r\ncontent-type:text/html\r\ncontent-encoding:Identity\r\ncontent-length: {len(content)}\r\n\r\n"
-        )
+    def _process_request(self):
+        # Check if server is setup for reverse proxy if not and gets a request other than GET return 405
+        if not CONFIG.forward and self.event.get("Method") == "GET":
+            content_type = ""
+            content = b""
+            base_path = CONFIG.location
+            requested_file = self.event.get("Location")
+            file_extension = requested_file.split(".")[-1]
+            if file_extension == "png":
+                content_type = "image"
+            elif file_extension == "html":
+                content_type = "text/html"
+            elif file_extension == "css":
+                content_type = "text/css"
+
+            if requested_file == "/":
+                requested_file = "/index.html"
+
+            full_path = base_path + requested_file
+
+            if not os.path.exists(full_path):
+                header_bytes = str.encode("HTTP/1.1 404 Not Found\r\n\r\n")
+            else:
+                # replace with threads
+                with open(full_path, mode="rb") as f:
+                    raw_bytes = f.read()
+                content = gzip.compress(raw_bytes)
+                header_bytes = str.encode(
+                    f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:gzip\r\ncontent-length: {len(content)}\r\n\r\n"
+                )
+        else:
+            header_bytes = str.encode("HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+
         self._send_buffer += header_bytes + content
         self._write()
 

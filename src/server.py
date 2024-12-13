@@ -15,7 +15,7 @@ def accept_wrapper(sock) -> None:
     )
 
 
-async def main() -> None:
+def main() -> None:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <host> <port>")
         sys.exit(1)
@@ -44,7 +44,7 @@ async def main() -> None:
                     writeMessage = write_message.WriteMessage(**message)
 
                     readMessage.read()
-                    await writeMessage.event_listener()
+                    writeMessage.event_listener()
 
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")
@@ -53,6 +53,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(main())
+    main()
