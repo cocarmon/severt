@@ -47,6 +47,7 @@ class ReadMessage:
                     self._recv_buffer = io.BytesIO()
                     event_queue.append(self.headers)
         else:
+            self._recv_buffer.close()
             self.sel.unregister(self.sock)
             self.sock.close()
 
