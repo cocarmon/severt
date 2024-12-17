@@ -1,4 +1,5 @@
 import io
+import time
 import http.client
 from http.client import HTTPMessage
 from codecs import decode
@@ -11,8 +12,8 @@ class ReadMessage:
         self.addr = addr
         self.sel = sel
         self.headers: HTTPMessage | None = None
-        self._content_len: int | None = None
         self._recv_buffer = io.BytesIO()
+        self.last_activity = 0
 
     def read(self):
         self._process_incoming_request()
@@ -24,6 +25,7 @@ class ReadMessage:
             # https://www.rfc-editor.org/rfc/rfc7230#page-19
             delimiter = b"\r\n\r\n"
             self._recv_buffer.write(data)
+            self.last_activity = time.time()
             if delimiter in self._recv_buffer.getvalue():
                 # parse_headers doesn't parse the start_line
                 # This must be parsed manually (https://docs.python.org/3/library/http.client.html#http.client.HTTPMessage)
