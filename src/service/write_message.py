@@ -1,10 +1,8 @@
 import os
-import select
-import platform
 from config import CONFIG
 from datetime import datetime, timezone
 from http.client import HTTPMessage
-from util.queue import event_queue
+from util.writes import pending_writes
 from util.mime import mime_mapping
 
 
@@ -17,10 +15,8 @@ class WriteMessage:
         self._send_buffer = b""
 
     def event_listener(self) -> None:
-        if len(event_queue) > 0:
-            event = event_queue.popleft()
-            self.event = event
-            self._process_request()
+        self.event = pending_writes[self.sock.fileno()][0]
+        self._process_request()
 
     def _is_valid_headers(self):
         if not self.event.get("Host"):
@@ -38,7 +34,7 @@ class WriteMessage:
 
         content_type = mime_mapping.get(f".{extension}", "application/octet-stream")
         gmt_string = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-        header_bytes = f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\nconnection:keep-alive\r\nKeep-Alive: timeout=10, max=100\r\n"
+        header_bytes = f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\n"
 
         if os.stat(full_path).st_size < 4194304:
             with open(full_path, mode="rb") as f:
@@ -60,7 +56,7 @@ class WriteMessage:
                     self._write()
                     if not content:
                         break
-            # Signals to the client socket that it's the end of the data
+            # Signals to the client that it's the end of the data
             self._send_buffer += b"0\r\n\r\n"
 
     def _head_request(self):
@@ -118,16 +114,20 @@ class WriteMessage:
         try:
             # Since it's using nonblocking sockets you have to check that the socket is ready to write
             # Preventing buffer overflow
-            _, ready_to_write, _ = select.select([], [self.sock], [], 0)
-            if ready_to_write and self._send_buffer:
+            if self._send_buffer and self.sock.fileno() != -1:
                 sent = self.sock.send(self._send_buffer)
                 self._send_buffer = self._send_buffer[sent:]
-            # triggers when .select() file descriptor limit is hit(1024)
-        except Exception:
-            header_bytes = (
-                "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 120\r\n\r\n".encode()
-            )
+                # If send buffer is empty then the socket sent all of the data and the headers are no longer needed
+                if not self._send_buffer:
+                    pending_writes[self.sock.fileno()].popleft()
+                    if len(pending_writes[self.sock.fileno()]) == 0:
+                        del pending_writes[self.sock.fileno()]
 
-            self.sock.send(header_bytes)
+        except BlockingIOError:
+            # buffer is full
+            pass
+        except OSError as e:
+            print("Write error:", e)
+            del pending_writes[self.sock.fileno()]
             self.sel.unregister(self.sock)
             self.sock.close()
