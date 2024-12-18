@@ -9,21 +9,17 @@
 
 ## 2. 🛠️ Features and Extensibility
 
-- [ ] **Routing System**:
-  - Implement URL routing with parameters (`/user/{id}`).
-  - Add support for route-specific middleware.
 - [ ] **Static File Serving**:
   - Serve files efficiently with support for partial requests (HTTP Range headers).
-- [ ] **Middleware Support**:
-  - Allow users to inject middleware for logging, authentication, or compression.
+- [ ] **Logging Support**:
+  - Allow users to keep track of errors through logging.
 - [ ] **Customizable Error Handling**:
   - Add meaningful HTTP error codes and allow users to define error pages.
 
 ## 3. 📚 HTTP Compliance
 
-- [ ] **HTTP 1.1/2 Support**:
+- [ ] **HTTP 1.1 Support**:
   - Include persistent connections with keep-alive headers.
-  - Optionally, explore HTTP/2 implementation.
 - [ ] **Standards Adherence**:
   - Properly handle request/response headers, chunked transfer encoding, and status codes.
 - [ ] **Content Negotiation**:
@@ -48,7 +44,7 @@
 ## 🎯 Example Goals
 
 1. **Set Performance Targets**:
-   - Handle 10k RPS (requests per second) with a latency of under 100ms on average.
+   - Handle 3k RPS (requests per second) with less than a 1% error rate.
 2. **Compliance**:
    - Pass an HTTP compliance suite like `h2spec`.
 
