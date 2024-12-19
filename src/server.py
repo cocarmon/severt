@@ -39,8 +39,8 @@ def main() -> None:
     write_instance_ids = {}
     read_instance_ids = {}
     last_clean = time.time()
-    connection_garbage_cycle = 25
-    defualt_cleanup = 10
+    # connection_garbage_cycle = 25
+    # defualt_cleanup = 10
     try:
         while True:
             events = sel.select(timeout=10)
@@ -61,21 +61,19 @@ def main() -> None:
                 elif mask & selectors.EVENT_WRITE:
                     message = key.data
                     socket_fd = message["sock"].fileno()
-                    if (
-                        socket_fd not in write_instance_ids
-                        and socket_fd in pending_writes
-                    ):
-                        writeMessage = write_message.WriteMessage(**message)
-                        write_instance_ids[socket_fd] = writeMessage
-                    else:
-                        writeMessage = write_instance_ids[socket_fd]
-                    writeMessage.event_listener()
+                    if socket_fd in pending_writes:
+                        if socket_fd not in write_instance_ids:
+                            writeMessage = write_message.WriteMessage(**message)
+                            write_instance_ids[socket_fd] = writeMessage
+                        else:
+                            writeMessage = write_instance_ids[socket_fd]
+                        writeMessage.event_listener()
 
-            if current_time := time.time() - last_clean > 25:
+            if time.time() - last_clean > 25:
                 for key in list(read_instance_ids):
                     read_instance = read_instance_ids[key]
                     if (
-                        current_time - read_instance.last_activity > 10
+                        time.time() - read_instance.last_activity > 10
                         and read_instance.sock.fileno() not in pending_writes
                         and read_instance.sock != lsock
                         and read_instance.sock.fileno() != -1
@@ -89,7 +87,7 @@ def main() -> None:
                         except Exception:
                             del read_instance_ids[key]
                             del write_instance_ids[key]
-                last_clean = current_time
+                last_clean = time.time()
 
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")

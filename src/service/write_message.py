@@ -1,4 +1,5 @@
 import os
+import re
 from config import CONFIG
 from datetime import datetime, timezone
 from http.client import HTTPMessage
@@ -19,9 +20,44 @@ class WriteMessage:
         self._process_request()
 
     def _is_valid_headers(self):
-        if not self.event.get("Host"):
+        try:
+            # Basic http header validation
+            headers = {key.lower(): value for key, value in self.event.items()}
+
+            if "host" not in headers or not headers["host"].strip():
+                return False
+
+            content_length = headers.get("content-length")
+            transfer_encoding = headers.get("transfer-encoding")
+
+            if content_length and transfer_encoding:
+                return False
+
+            if content_length:
+                if not content_length.isdigit() or int(content_length) <= 0:
+                    return False
+
+            if transfer_encoding:
+                if transfer_encoding.lower() != "chunked":
+                    return False
+
+            seen_headers = set()
+            for header in self.event.keys():
+                if header.lower() in seen_headers:
+                    return False
+                seen_headers.add(header.lower())
+
+            for key, value in self.event.items():
+                # Prevent request smuggling
+                if key.strip() != key or value.strip() != value:
+                    return False
+                # Verfies that the header has a valid name
+                if not re.match(r"^[A-Za-z0-9-]+$", key):
+                    return False
+
+            return True
+        except Exception as e:
             return False
-        return True
 
     def _get_request(self):
         content = b""
@@ -98,14 +134,20 @@ class WriteMessage:
                 elif method == "HEAD":
                     self._head_request()
                 else:
-                    header_bytes = str.encode("HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+                    header_bytes = str.encode(
+                        "HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n"
+                    )
                     self._send_buffer = header_bytes
             else:
-                header_bytes = str.encode("HTTP/1.1 400 Bad Request\r\n\r\n")
+                header_bytes = str.encode(
+                    "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"
+                )
                 self._send_buffer = header_bytes
         except FileNotFoundError:
-            header_bytes = str.encode("HTTP/1.1 404 Not Found\r\n\r\n")
-            self._send_buffer += header_bytes
+            header_bytes = str.encode(
+                "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
+            )
+            self._send_buffer = header_bytes
 
         finally:
             self._write()
