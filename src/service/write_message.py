@@ -2,9 +2,9 @@ import os
 import re
 import socket
 from config import CONFIG
-from datetime import datetime, timezone
+from util.mime import content_type_mapping
 from http.client import HTTPMessage
-from util.mime import mime_mapping
+from datetime import datetime, timezone
 from util.writes import pending_writes, read_instance_ids, write_instance_ids
 
 
@@ -63,13 +63,9 @@ class WriteMessage:
     def _get_request(self):
         content = b""
         content_encoding = "Identity"
-        location = self.event.get("Location")
 
-        requested_file = "/index.html" if location == "/" else location
-        extension = requested_file.split(".")[-1]
-        full_path = CONFIG.location + requested_file
+        full_path, content_type = self._content_negotiation()
 
-        content_type = mime_mapping.get(f".{extension}", "application/octet-stream")
         gmt_string = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         header_bytes = f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\n"
 
@@ -96,16 +92,28 @@ class WriteMessage:
             # Signals to the client that it's the end of the data
             self._send_buffer += b"0\r\n\r\n"
 
+    def _content_negotiation(self):
+        content_type = "text/html"
+        location = self.event.get("Location")
+        requested_file = "/index.html" if location == "/" else location
+        name, _ = requested_file.split(".")
+
+        for accept in self.event.get("Accept", "text/html").split(","):
+            if os.path.exists(
+                CONFIG.location
+                + name
+                + content_type_mapping.get(accept.split(";")[0], "does_not_exist.txt")
+            ):
+                requested_file = name + content_type_mapping[accept]
+                content_type = accept
+                break
+        full_path = CONFIG.location + requested_file
+        return full_path, content_type
+
     def _head_request(self):
         content = b""
         content_encoding = "Identity"
-        location = self.event.get("Location")
-
-        requested_file = "/index.html" if location == "/" else location
-        extension = requested_file.split(".")[-1]
-        full_path = CONFIG.location + requested_file
-
-        content_type = mime_mapping.get(f".{extension}", "application/octet-stream")
+        full_path, content_type = self._content_negotiation()
         gmt_string = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         header_bytes = f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\nconnection:keep-alive\r\n"
 
@@ -160,17 +168,19 @@ class WriteMessage:
             if self._send_buffer and self.sock.fileno() != -1:
                 sent = self.sock.send(self._send_buffer)
 
-                if self._send_buffer.startswith(b"HTTP/1.1 4"):
+                if (
+                    self._send_buffer.startswith(b"HTTP/1.1 4")
+                    or self.event.get("Method") == "OPTIONS"
+                ):
                     self._close_socket()
 
                 self._send_buffer = self._send_buffer[sent:]
                 # If send buffer is empty then the socket sent all of the data and the headers are no longer needed
-                if not self._send_buffer and pending_writes.get(
-                    self.sock.fileno(), False
-                ):
-                    pending_writes[self.sock.fileno()].popleft()
-                    if len(pending_writes[self.sock.fileno()]) == 0:
-                        del pending_writes[self.sock.fileno()]
+                socket_fd = self.sock.fileno()
+                if not self._send_buffer and socket_fd in pending_writes:
+                    pending_writes[socket_fd].popleft()
+                    if len(pending_writes[socket_fd]) == 0:
+                        del pending_writes[socket_fd]
 
         except BlockingIOError as e:
             print("Write error:", e)
