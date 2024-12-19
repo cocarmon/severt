@@ -1,10 +1,11 @@
 import os
 import re
+import socket
 from config import CONFIG
 from datetime import datetime, timezone
 from http.client import HTTPMessage
-from util.writes import pending_writes
 from util.mime import mime_mapping
+from util.writes import pending_writes, read_instance_ids, write_instance_ids
 
 
 class WriteMessage:
@@ -158,18 +159,38 @@ class WriteMessage:
             # Preventing buffer overflow
             if self._send_buffer and self.sock.fileno() != -1:
                 sent = self.sock.send(self._send_buffer)
+
+                if self._send_buffer.startswith(b"HTTP/1.1 4"):
+                    self._close_socket()
+
                 self._send_buffer = self._send_buffer[sent:]
                 # If send buffer is empty then the socket sent all of the data and the headers are no longer needed
-                if not self._send_buffer:
+                if not self._send_buffer and pending_writes.get(
+                    self.sock.fileno(), False
+                ):
                     pending_writes[self.sock.fileno()].popleft()
                     if len(pending_writes[self.sock.fileno()]) == 0:
                         del pending_writes[self.sock.fileno()]
 
-        except BlockingIOError:
-            # buffer is full
-            pass
+        except BlockingIOError as e:
+            print("Write error:", e)
         except OSError as e:
             print("Write error:", e)
-            del pending_writes[self.sock.fileno()]
-            self.sel.unregister(self.sock)
-            self.sock.close()
+            self._close_socket()
+
+    def _close_socket(self):
+        try:
+            socket_fd = self.sock.fileno()
+            if socket_fd != -1:
+                self.sel.unregister(self.sock)
+                self.sock.shutdown(socket.SHUT_RDWR)
+                self.sock.close()
+                if socket_fd in pending_writes:
+                    del pending_writes[socket_fd]
+                if socket_fd in read_instance_ids:
+                    del read_instance_ids[socket_fd]
+                if socket_fd in write_instance_ids:
+                    del write_instance_ids[socket_fd]
+        except Exception as error:
+            print("closing socket")
+            print(error)
