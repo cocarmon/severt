@@ -2,7 +2,7 @@ import os
 import re
 import socket
 from config import CONFIG
-from util.mime import content_type_mapping
+from util.mime import mime_mapping, content_type_mapping
 from http.client import HTTPMessage
 from datetime import datetime, timezone
 from util.writes import pending_writes, read_instance_ids, write_instance_ids
@@ -68,8 +68,8 @@ class WriteMessage:
 
         gmt_string = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         header_bytes = f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\n"
-
-        if os.stat(full_path).st_size < 4194304:
+        file_size = os.stat(full_path).st_size
+        if file_size < 4 * 1024:
             with open(full_path, mode="rb") as f:
                 content = f.read()
                 header_bytes = str.encode(
@@ -77,36 +77,58 @@ class WriteMessage:
                 )
             self._send_buffer += header_bytes + content
         else:
-            header_bytes = str.encode(
-                header_bytes + "transfer-encoding:chunked\r\n\r\n"
-            )
-            with open(full_path, mode="rb") as f:
+            # The browser will send 2 requests, ones a probe and can be satisfied with metadata the other expects the resource in ranges
+            if range := self.event.get("Range"):
+                # Range Format: bytes=-, bytes=0-, bytes=start-end
+                byte_range = range.split("=")[1]
+                byte_range = byte_range.split("-")
+
+                DEFAULT_BYTE_RANGE = 100 * 1024
+                byte_start, byte_end = 0, DEFAULT_BYTE_RANGE
+                if len(byte_range) >= 1:
+                    if byte_range[0]:
+                        byte_start = int(byte_range[0])
+                        byte_end = byte_start + DEFAULT_BYTE_RANGE
+                        # Prevent read overflow
+                        if byte_start + DEFAULT_BYTE_RANGE > file_size:
+                            byte_end = file_size
+                # Length == 2, when start and end bytes are defined
+                if len(byte_range) == 2:
+                    if byte_range[1]:
+                        byte_end = int(byte_range[1])
+                with open(full_path, mode="rb") as f:
+                    f.seek(byte_start)
+                    content = f.read(byte_end - byte_start)
+
+                content_length = len(content)
+                header_bytes = str.encode(
+                    f"HTTP/1.1 206 Partial Content\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\nContent-Length:{content_length}\r\ndate:{gmt_string}\r\ncontent-range:bytes {byte_start}-{byte_end - 1}/{file_size}\r\n\r\n"
+                )
+                self._send_buffer += header_bytes + content
+
+            else:
+                header_bytes = str.encode(header_bytes + "Accept-Ranges: bytes\r\n\r\n")
                 self._send_buffer += header_bytes
-                while True:
-                    content = f.read(2048)
-                    prefix = str.encode(f"{len(content):x}\r\n")
-                    self._send_buffer += prefix + content + b"\r\n"
-                    self._write()
-                    if not content:
-                        break
-            # Signals to the client that it's the end of the data
-            self._send_buffer += b"0\r\n\r\n"
 
     def _content_negotiation(self):
         content_type = "text/html"
         location = self.event.get("Location")
         requested_file = "/index.html" if location == "/" else location
-        name, _ = requested_file.split(".")
+        name, ext = requested_file.split(".")
 
         for accept in self.event.get("Accept", "text/html").split(","):
+            type = accept.split(";")[0]
             if os.path.exists(
                 CONFIG.location
                 + name
-                + content_type_mapping.get(accept.split(";")[0], "does_not_exist.txt")
+                + content_type_mapping.get(type, "does_not_exist.txt")
             ):
                 requested_file = name + content_type_mapping[accept]
                 content_type = accept
                 break
+            if type == "*/*":
+                content_type = mime_mapping[f".{ext}"]
+
         full_path = CONFIG.location + requested_file
         return full_path, content_type
 
@@ -167,13 +189,11 @@ class WriteMessage:
             # Preventing buffer overflow
             if self._send_buffer and self.sock.fileno() != -1:
                 sent = self.sock.send(self._send_buffer)
-
                 if (
                     self._send_buffer.startswith(b"HTTP/1.1 4")
                     or self.event.get("Method") == "OPTIONS"
                 ):
                     self._close_socket()
-
                 self._send_buffer = self._send_buffer[sent:]
                 # If send buffer is empty then the socket sent all of the data and the headers are no longer needed
                 socket_fd = self.sock.fileno()
@@ -185,10 +205,11 @@ class WriteMessage:
         except BlockingIOError as e:
             print("Write error:", e)
         except OSError as e:
-            print("Write error:", e)
+            print("Write errors:", e)
             self._close_socket()
 
     def _close_socket(self):
+        print("closing the socket in write")
         try:
             socket_fd = self.sock.fileno()
             if socket_fd != -1:
