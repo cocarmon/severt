@@ -1,10 +1,17 @@
 import sys
 import time
 import socket
-import config
+
 import selectors
 from service import read_message, write_message
-from util.writes import pending_writes
+from util.pending_operations import (
+    pending_writes,
+    write_instance_ids,
+    read_instance_ids,
+    clean_operation_states,
+)
+from util.logger import logger
+from config import CONFIG
 
 # Chooses the most efficient polling based on platform
 sel = selectors.DefaultSelector()
@@ -22,7 +29,7 @@ def accept_wrapper(sock) -> None:
 
 def main() -> None:
     if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <host> <port>")
+        print("Severt requires 2 arguments.")
         sys.exit(1)
 
     host, port = sys.argv[1], int(sys.argv[2])
@@ -31,16 +38,18 @@ def main() -> None:
     lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     lsock.bind((host, port))
 
-    lsock.listen(20)
+    lsock.listen(30)
 
-    print(f"Listening on {(host, port)}")
+    start_stmt = (
+        f"Server started on http://{host}:{port}, serving directory {CONFIG.location}."
+    )
+
+    logger.info(start_stmt)
+    print(start_stmt)
+
     lsock.setblocking(False)
     sel.register(lsock, selectors.EVENT_READ, data=None)
-    write_instance_ids = {}
-    read_instance_ids = {}
     last_clean = time.time()
-    # connection_garbage_cycle = 25
-    # defualt_cleanup = 10
     try:
         while True:
             events = sel.select(timeout=10)
@@ -69,31 +78,34 @@ def main() -> None:
                             writeMessage = write_instance_ids[socket_fd]
                         writeMessage.event_listener()
 
-            if time.time() - last_clean > 25:
-                for key in list(read_instance_ids):
-                    read_instance = read_instance_ids[key]
+            if time.time() - last_clean > 25 and len(read_instance_ids) >= 1:
+                last_clean = time.time()
+                for socket_key in list(read_instance_ids):
+                    read_instance = read_instance_ids[socket_key]
+                    read_socket_fd = read_instance.sock.fileno()
                     if (
-                        time.time() - read_instance.last_activity > 10
-                        and read_instance.sock.fileno() not in pending_writes
+                        time.time() - read_instance.last_activity > 15
+                        and read_socket_fd not in pending_writes
                         and read_instance.sock != lsock
-                        and read_instance.sock.fileno() != -1
+                        and read_socket_fd != -1
                     ):
                         try:
                             read_instance.sel.unregister(read_instance.sock)
                             read_instance.sock.shutdown(socket.SHUT_RDWR)
                             read_instance.sock.close()
-                            del read_instance_ids[key]
-                            del write_instance_ids[key]
                         except Exception:
-                            del read_instance_ids[key]
-                            del write_instance_ids[key]
-                last_clean = time.time()
-
+                            logger.exception("GarbageCollectionError")
+                        finally:
+                            clean_operation_states(read_socket_fd)
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")
-    except Exception as error:
-        print(error)
+    except Exception:
+        logger.exception("ServerError")
     finally:
+        if sys.exc_info()[0] is KeyboardInterrupt or sys.exc_info()[0] is None:
+            logger.info("Server shut down gracefully.")
+        else:
+            logger.info("Server shut down due to an error.")
         sel.close()
 
 

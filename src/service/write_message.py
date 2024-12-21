@@ -5,7 +5,11 @@ from config import CONFIG
 from util.mime import mime_mapping, content_type_mapping
 from http.client import HTTPMessage
 from datetime import datetime, timezone
-from util.writes import pending_writes, read_instance_ids, write_instance_ids
+from util.pending_operations import (
+    pending_writes,
+    clean_operation_states,
+)
+from util.logger import logger
 
 
 class WriteMessage:
@@ -69,7 +73,7 @@ class WriteMessage:
         gmt_string = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
         header_bytes = f"HTTP/1.1 200 OK\r\ncontent-type:{content_type}\r\ncontent-encoding:{content_encoding}\r\ndate:{gmt_string}\r\n"
         file_size = os.stat(full_path).st_size
-        if file_size < 4 * 1024:
+        if file_size < (4000 * 1024):
             with open(full_path, mode="rb") as f:
                 content = f.read()
                 header_bytes = str.encode(
@@ -179,7 +183,11 @@ class WriteMessage:
                 "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
             )
             self._send_buffer = header_bytes
-
+        except Exception:
+            header_bytes = str.encode(
+                "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n"
+            )
+            self._send_buffer = header_bytes
         finally:
             self._write()
 
@@ -202,26 +210,19 @@ class WriteMessage:
                     if len(pending_writes[socket_fd]) == 0:
                         del pending_writes[socket_fd]
 
-        except BlockingIOError as e:
-            print("Write error:", e)
-        except OSError as e:
-            print("Write errors:", e)
+        except BlockingIOError:
+            pass  # This error will throw if the buffer is full
+        except Exception:
+            logger.exception("WriteMessageError")
             self._close_socket()
 
     def _close_socket(self):
-        print("closing the socket in write")
         try:
             socket_fd = self.sock.fileno()
             if socket_fd != -1:
                 self.sel.unregister(self.sock)
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
-                if socket_fd in pending_writes:
-                    del pending_writes[socket_fd]
-                if socket_fd in read_instance_ids:
-                    del read_instance_ids[socket_fd]
-                if socket_fd in write_instance_ids:
-                    del write_instance_ids[socket_fd]
-        except Exception as error:
-            print("closing socket")
-            print(error)
+                clean_operation_states(socket_fd)
+        except Exception:
+            logger.exception("CloseWriteSocketError")

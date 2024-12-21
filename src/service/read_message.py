@@ -5,7 +5,8 @@ import http.client
 from codecs import decode
 from collections import deque
 from http.client import HTTPMessage
-from util.writes import pending_writes, write_instance_ids, read_instance_ids
+from util.pending_operations import pending_writes, clean_operation_states
+from util.logger import logger
 
 
 class ReadMessage:
@@ -27,7 +28,6 @@ class ReadMessage:
                 self.last_activity = time.time()
                 if delimiter in self._recv_buffer.getvalue():
                     self._parse_http_headers()
-
                     if self.headers:
                         socket_fd = self.sock.fileno()
                         if socket_fd in pending_writes:
@@ -39,10 +39,10 @@ class ReadMessage:
                         self._recv_buffer = io.BytesIO()
             else:
                 self._close_socket()
-
+        except ConnectionResetError as e:
+            clean_operation_states(self.sock.fileno())
         except Exception as e:
-            print("read_message")
-            print(e)
+            logger.exception("ReadMessageError")
 
     def _parse_http_headers(self):
         self._recv_buffer.seek(0)
@@ -66,12 +66,7 @@ class ReadMessage:
                 self.sel.unregister(self.sock)
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
-                if socket_fd in pending_writes:
-                    del pending_writes[socket_fd]
-                if socket_fd in read_instance_ids:
-                    del read_instance_ids[socket_fd]
-                if socket_fd in write_instance_ids:
-                    del write_instance_ids[socket_fd]
-        except Exception as error:
-            print("closing socket")
-            print(error)
+                clean_operation_states(socket_fd)
+
+        except Exception:
+            logger.exception("CloseReadSocketError")
