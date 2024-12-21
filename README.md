@@ -9,21 +9,21 @@
 
 ## 2. 🛠️ Features and Extensibility
 
-- [ ] **Static File Serving**:
+- [x] **Static File Serving**:
   - Serve files efficiently with support for partial requests (HTTP Range headers).
-- [ ] **Logging Support**:
+- [x] **Logging Support**:
   - Allow users to keep track of errors through logging.
 - [ ] **Customizable Error Handling**:
   - Add meaningful HTTP error codes and allow users to define error pages.
 
 ## 3. 📚 HTTP Compliance
 
-- [ ] **HTTP 1.1 Support**:
+- [x] **HTTP 1.1 Support**:
   - Include persistent connections with keep-alive headers.
-- [ ] **Standards Adherence**:
-  - Properly handle request/response headers, chunked transfer encoding, and status codes.
-- [ ] **Content Negotiation**:
-  - Respond based on `Accept` headers (e.g., JSON or HTML).
+- [x] **Standards Adherence**:
+  - Properly handle request/response headers, content encoding, and status codes.
+- [x] **Content Negotiation**:
+  - Respond based on `Accept` headers (e.g., Image or HTML).
 
 ## 4. 📈 Scalability and Concurrency
 
