@@ -1,0 +1,6 @@
+name: severt
+port: 8000
+host: localhost
+location:
+  static:
+  log:
