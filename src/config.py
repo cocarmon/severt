@@ -10,5 +10,5 @@ class Config:
     host: str = "localhost"
 
 
-with open("C:/Users/codyw/Desktop/Papers/part_one/servert.yml", "r") as file:
+with open("", "r") as file:
     CONFIG = Config(**yaml.safe_load(file))
