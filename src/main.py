@@ -3,8 +3,8 @@ import time
 import socket
 import selectors
 from config import CONFIG
-from util import read_instance_ids, logger
-from service.read_message import ReadMessage
+from util import read_instance_ids, logger, write_instance_ids
+from service import ReadMessage, WriteMessage
 
 # Chooses the most efficient polling based on platform
 sel = selectors.DefaultSelector()
@@ -54,9 +54,16 @@ def main() -> None:
                 else:
                     read_instance = ReadMessage(**message)
                     read_instance_ids[socket_fd] = read_instance
-                    read_instance.read()
+                read_instance.read()
             elif mask & selectors.EVENT_WRITE:
-                pass  # here we will implement a class to write to the socket
+                message = key.data
+                socket_fd = message["sock"].fileno()
+                if socket_fd in write_instance_ids:
+                    write_instance = write_instance_ids[socket_fd]
+                else:
+                    write_instance = WriteMessage(**message)
+                    write_instance_ids[socket_fd] = write_instance
+                write_instance.send()
 
 
 if __name__ == "__main__":

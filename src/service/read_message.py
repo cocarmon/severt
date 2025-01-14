@@ -30,7 +30,6 @@ class ReadMessage:
                 if delimiter in self._recv_buffer.getvalue():
                     header = self._parse_http_headers()
                     if header:
-                        print(header)
                         socket_fd: int = self.sock.fileno()
                         pendingWrites[socket_fd] = header
                         self._recv_buffer = io.BytesIO()
